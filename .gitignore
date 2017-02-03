@@ -32,5 +32,6 @@
 *.dSYM/
 *.su
 
-# Input files
+# I/O files
 *.list
+*.out

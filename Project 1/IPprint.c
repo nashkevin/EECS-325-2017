@@ -12,7 +12,10 @@
 #define EXIT_SUCCESS 0
 #define EXIT_FAILURE 1
 
-void writeOutput(FILE *fileptr, int iFlag, int oFlag, int pFlag);
+#define BYTES_PER_IP 4
+
+
+void write_output(FILE *fileptr, int iFlag, int oFlag, int pFlag);
 
 int main(int argc, char **argv) {
     /* specifies printing of IP addresses */
@@ -23,7 +26,7 @@ int main(int argc, char **argv) {
     int pFlag = 0;
     /* filename for binary list of IP addresses */
     unsigned char *ipFilename = NULL;
-    /* reusable index variable */
+    /* reusable counting variable */
     int i;
     /* iterator for command line args */
     int option;
@@ -81,26 +84,46 @@ int main(int argc, char **argv) {
         }
     }
 
-    writeOutput(fileptr, iFlag, oFlag, pFlag);
+    write_output(fileptr, iFlag, oFlag, pFlag);
     exit(EXIT_SUCCESS);
 }
 
-void writeOutput(FILE *fileptr, int iFlag, int oFlag, int pFlag) {
-    /* reusable index variable */
-    int i;
+void write_output(FILE *fileptr, int iFlag, int oFlag, int pFlag) {
+    /* reusable counting variables */
+    int i, j;
     /* iterator for bytes in the stream */
     int byte;
+    /* the most recent prefix, used with -p */
+    int mostRecentIP[BYTES_PER_IP];
 
-    i = 1;
+    i = 0;
     do {
         byte = fgetc(fileptr);
+        // terminate loop upon reaching the end of the file
         if (feof(fileptr)) {
             break;
         }
-        printf("%d", byte);
-        if (i++ % 4 == 0) {
-            printf("\n");
-        } else {
+        // store the current byte in mostRecentIP
+        mostRecentIP[i % BYTES_PER_IP] = byte;
+        if (iFlag) {
+            printf("%d", byte);
+        }
+        if (++i % BYTES_PER_IP == 0) {
+            if (iFlag && pFlag) {
+                printf(" ");
+            }
+            if (pFlag) {
+                for (j = 0; j < sizeof(mostRecentIP) / sizeof(mostRecentIP[0]) - 2; j++) {
+                    printf("%d.", mostRecentIP[j]);
+                }
+                // print the last byte without the dot
+                printf("%d", mostRecentIP[j]);
+            }
+            if (iFlag || pFlag) {
+                printf("\n");
+            }
+        }
+        else if (iFlag) {
             printf(".");
         }
     } while(1);
