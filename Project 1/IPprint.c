@@ -7,6 +7,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 
 #define EXIT_SUCCESS 0
@@ -15,7 +16,9 @@
 #define BYTES_PER_IP 4
 
 
-void write_output(FILE *fileptr, int iFlag, int oFlag, int pFlag);
+// void parse_org_file(FILE *orgFilePtr);
+void write_output(FILE *ipFilePtr, FILE *orgFilePtr, int iFlag, int oFlag, int pFlag);
+void lookup_and_print_org(FILE *orgFilePtr, int *ipAddress);
 
 int main(int argc, char **argv) {
     /* specifies printing of IP addresses */
@@ -26,24 +29,29 @@ int main(int argc, char **argv) {
     int pFlag = 0;
     /* filename for binary list of IP addresses */
     unsigned char *ipFilename = NULL;
+    /* filename for text list of prefix, org pairs */
+    unsigned char *orgFilename = NULL;
     /* reusable counting variable */
     int i;
     /* iterator for command line args */
     int option;
     /* pointer to the file opened by ipFilename */
-    FILE *fileptr;
+    FILE *ipFilePtr = NULL;
+    /* pointer to the file opened by orgFilename */
+    FILE *orgFilePtr = NULL;
 
     /* external variable set to zero to override getopt error handling */
     opterr = 0;
 
     // Parse arguments
-    while ((option = getopt(argc, argv, "iopL:")) != -1)
+    while ((option = getopt(argc, argv, "io:pL:")) != -1)
     switch (option) {
         case 'i':
             iFlag = 1;
             break;
         case 'o':
             oFlag = 1;
+            orgFilename = optarg;
             break;
         case 'p':
             pFlag = 1;
@@ -52,8 +60,8 @@ int main(int argc, char **argv) {
             ipFilename = optarg;
             break;
         case '?':
-            if (optopt == 'L') {
-              fprintf (stderr, "Option -%c requires an argument.\n", optopt);
+            if (optopt == 'L' || optopt == 'o') {
+                fprintf (stderr, "Option -%c requires an argument.\n", optopt);
             }
             else if (isprint (optopt)) {
                 fprintf(stderr, "Unknown option `-%c'.\n", optopt);
@@ -77,18 +85,31 @@ int main(int argc, char **argv) {
         exit(EXIT_FAILURE);
     } else {
         // Attempt to open the specified file
-        fileptr = fopen(ipFilename, "rb");
-        if (fileptr == NULL) {
+        ipFilePtr = fopen(ipFilename, "rb");
+        if (ipFilePtr == NULL) {
             perror("Error");
             exit(EXIT_FAILURE);
         }
     }
 
-    write_output(fileptr, iFlag, oFlag, pFlag);
+    if (oFlag) {
+        orgFilePtr = fopen(orgFilename, "r");
+        if (orgFilePtr == NULL) {
+            perror("Error");
+            exit(EXIT_FAILURE);
+        }
+        // parse_org_file(orgFilePtr);
+    }
+
+    write_output(ipFilePtr, orgFilePtr, iFlag, oFlag, pFlag);
     exit(EXIT_SUCCESS);
 }
 
-void write_output(FILE *fileptr, int iFlag, int oFlag, int pFlag) {
+// void parse_org_file(FILE *orgFilePtr) {
+
+// }
+
+void write_output(FILE *ipFilePtr, FILE *orgFilePtr, int iFlag, int oFlag, int pFlag) {
     /* reusable counting variables */
     int i, j;
     /* iterator for bytes in the stream */
@@ -98,9 +119,9 @@ void write_output(FILE *fileptr, int iFlag, int oFlag, int pFlag) {
 
     i = 0;
     do {
-        byte = fgetc(fileptr);
+        byte = fgetc(ipFilePtr);
         // terminate loop upon reaching the end of the file
-        if (feof(fileptr)) {
+        if (feof(ipFilePtr)) {
             break;
         }
         // store the current byte in mostRecentIP
@@ -118,8 +139,14 @@ void write_output(FILE *fileptr, int iFlag, int oFlag, int pFlag) {
                 }
                 // print the last byte without the dot
                 printf("%d", mostRecentIP[j]);
+                if (oFlag) {
+                    printf(" ");
+                }
             }
-            if (iFlag || pFlag) {
+            if (oFlag) {
+                lookup_and_print_org(orgFilePtr, mostRecentIP);
+            }
+            if (iFlag || pFlag || oFlag) {
                 printf("\n");
             }
         }
@@ -127,4 +154,30 @@ void write_output(FILE *fileptr, int iFlag, int oFlag, int pFlag) {
             printf(".");
         }
     } while(1);
+
+    fclose(ipFilePtr);
+    fclose(orgFilePtr);
+}
+
+void lookup_and_print_org(FILE *orgFilePtr, int *ipAddress) {
+    char line[512];
+    int lineNum = 1;
+    int foundMatch = 0;
+    int i;
+    char *prefixString;
+
+    for (i = 0; i < sizeof(ipAddress) / sizeof(ipAddress[0]) - 2; i++) {
+        sprintf(prefixString, "%d.", ipAddress[i]);
+    }
+    sprintf(prefixString, "%d", ipAddress[i]);
+
+    printf("%s\n", prefixString);
+
+    while (fgets(line, 512, orgFilePtr) != NULL && !foundMatch) {
+        if ((strstr(line, prefixString)) != NULL) {
+            printf("A match found on line: %d\n", lineNum);
+            printf("\n%s\n", line);
+        }
+        lineNum++;
+    }
 }
