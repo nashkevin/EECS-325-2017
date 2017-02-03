@@ -12,8 +12,9 @@
 #define EXIT_SUCCESS 0
 #define EXIT_FAILURE 1
 
+void writeOutput(FILE *fileptr, int iFlag, int oFlag, int pFlag);
 
-int main (int argc, char **argv) {
+int main(int argc, char **argv) {
     /* specifies printing of IP addresses */
     int iFlag = 0;
     /* specifies printing of organization names */
@@ -28,75 +29,79 @@ int main (int argc, char **argv) {
     int option;
     /* pointer to the file opened by ipFilename */
     FILE *fileptr;
-    /* 
-    unsigned char* buffer[4];
 
     /* external variable set to zero to override getopt error handling */
     opterr = 0;
 
+    // Parse arguments
     while ((option = getopt(argc, argv, "iopL:")) != -1)
     switch (option) {
         case 'i':
-        iFlag = 1;
-        break;
+            iFlag = 1;
+            break;
         case 'o':
-        oFlag = 1;
-        break;
+            oFlag = 1;
+            break;
         case 'p':
-        pFlag = 1;
-        break;
+            pFlag = 1;
+            break;
         case 'L':
-        ipFilename = optarg;
-        break;
+            ipFilename = optarg;
+            break;
         case '?':
-        if (optopt == 'L') {
-          fprintf (stderr, "Option -%c requires an argument.\n", optopt);
-        }
-        else if (isprint (optopt)) {
-            fprintf(stderr, "Unknown option `-%c'.\n", optopt);
-        }
-        else {
-            fprintf(stderr, "Unknown option character `\\x%x'.\n", optopt);
-        }
-        return 1;
+            if (optopt == 'L') {
+              fprintf (stderr, "Option -%c requires an argument.\n", optopt);
+            }
+            else if (isprint (optopt)) {
+                fprintf(stderr, "Unknown option `-%c'.\n", optopt);
+            }
+            else {
+                fprintf(stderr, "Unknown option character `\\x%x'.\n", optopt);
+            }
         default:
-        abort();
+            exit(EXIT_FAILURE);
     }
+
+    // Tell the user they typed something wrong
     for (i = optind; i < argc; i++) {
-        printf ("Non-option argument %s\n", argv[i]);
+        fprintf(stderr, "Invalid argument: %s\n", argv[optind]);
+        exit(EXIT_FAILURE); // Can be removed if we don't want to be fail-fast
     }
 
-    fileptr = fopen(ipFilename, "rb");
-
-    if (fileptr == NULL) {
-        perror("Error");
+    // Check whether an input filename was given
+    if (ipFilename == NULL) {
+        printf("Use of -L <filename> is required.\n");
         exit(EXIT_FAILURE);
+    } else {
+        // Attempt to open the specified file
+        fileptr = fopen(ipFilename, "rb");
+        if (fileptr == NULL) {
+            perror("Error");
+            exit(EXIT_FAILURE);
+        }
     }
-    
-    // fread(buffer, sizeof(buffer), 1, fileptr);
 
-    int c;
+    writeOutput(fileptr, iFlag, oFlag, pFlag);
+    exit(EXIT_SUCCESS);
+}
+
+void writeOutput(FILE *fileptr, int iFlag, int oFlag, int pFlag) {
+    /* reusable index variable */
+    int i;
+    /* iterator for bytes in the stream */
+    int byte;
+
     i = 1;
     do {
-        c = fgetc(fileptr);
+        byte = fgetc(fileptr);
         if (feof(fileptr)) {
             break;
         }
-        printf("%d", c);
+        printf("%d", byte);
         if (i++ % 4 == 0) {
             printf("\n");
         } else {
             printf(".");
         }
     } while(1);
-
-    // char *p;
-    // int intNumber = strtol(buffer[0], &p, 16);
-    // printf("The received number is: %d.\n", intNumber);
-
-    // for (i = 0; i < 1; i++) {
-    //     printf("%x ", buffer[i]);
-    // }
-
-    return 0;
 }
