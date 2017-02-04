@@ -5,6 +5,7 @@
 // Prints data about IP addresses and their associated organizations
 // 
 
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -14,6 +15,8 @@
 #define EXIT_FAILURE 1
 
 #define BYTES_PER_IP 4
+#define CHARS_PER_IP 16
+#define MAX_CHARS_IN 512
 
 
 // void parse_org_file(FILE *orgFilePtr);
@@ -28,9 +31,9 @@ int main(int argc, char **argv) {
     /* specifies printing of IP prefixes */
     int pFlag = 0;
     /* filename for binary list of IP addresses */
-    unsigned char *ipFilename = NULL;
+    char *ipFilename = NULL;
     /* filename for text list of prefix, org pairs */
-    unsigned char *orgFilename = NULL;
+    char *orgFilename = NULL;
     /* reusable counting variable */
     int i;
     /* iterator for command line args */
@@ -102,12 +105,10 @@ int main(int argc, char **argv) {
     }
 
     write_output(ipFilePtr, orgFilePtr, iFlag, oFlag, pFlag);
+    // int ipAddress[3] = {177, 52, 162};
+    // lookup_and_print_org(orgFilePtr, ipAddress);
     exit(EXIT_SUCCESS);
 }
-
-// void parse_org_file(FILE *orgFilePtr) {
-
-// }
 
 void write_output(FILE *ipFilePtr, FILE *orgFilePtr, int iFlag, int oFlag, int pFlag) {
     /* reusable counting variables */
@@ -130,7 +131,7 @@ void write_output(FILE *ipFilePtr, FILE *orgFilePtr, int iFlag, int oFlag, int p
             printf("%d", byte);
         }
         if (++i % BYTES_PER_IP == 0) {
-            if (iFlag && pFlag) {
+            if (iFlag && (pFlag || oFlag)) {
                 printf(" ");
             }
             if (pFlag) {
@@ -146,7 +147,7 @@ void write_output(FILE *ipFilePtr, FILE *orgFilePtr, int iFlag, int oFlag, int p
             if (oFlag) {
                 lookup_and_print_org(orgFilePtr, mostRecentIP);
             }
-            if (iFlag || pFlag || oFlag) {
+            if ((iFlag || pFlag) && !oFlag) {
                 printf("\n");
             }
         }
@@ -154,30 +155,35 @@ void write_output(FILE *ipFilePtr, FILE *orgFilePtr, int iFlag, int oFlag, int p
             printf(".");
         }
     } while(1);
-
-    fclose(ipFilePtr);
-    fclose(orgFilePtr);
 }
 
 void lookup_and_print_org(FILE *orgFilePtr, int *ipAddress) {
-    char line[512];
+    char line[MAX_CHARS_IN];
     int lineNum = 1;
     int foundMatch = 0;
-    int i;
-    char *prefixString;
+    int i = 0;
+    char *prefixString = malloc(sizeof(char) * CHARS_PER_IP);
+    char *orgString;
 
-    for (i = 0; i < sizeof(ipAddress) / sizeof(ipAddress[0]) - 2; i++) {
-        sprintf(prefixString, "%d.", ipAddress[i]);
+    sprintf(prefixString, "%d.", ipAddress[0]);
+    for (i = 1; i < sizeof(ipAddress) / sizeof(ipAddress[0]) - 2; i++) {
+        sprintf(prefixString + strlen(prefixString), "%d.", ipAddress[i]);
     }
-    sprintf(prefixString, "%d", ipAddress[i]);
+    sprintf(prefixString + strlen(prefixString), "%d", ipAddress[i]);
 
-    printf("%s\n", prefixString);
-
-    while (fgets(line, 512, orgFilePtr) != NULL && !foundMatch) {
+    while (!foundMatch && fgets(line, MAX_CHARS_IN, orgFilePtr) != NULL) {
         if ((strstr(line, prefixString)) != NULL) {
-            printf("A match found on line: %d\n", lineNum);
-            printf("\n%s\n", line);
+            foundMatch = 1;
+            orgString = strtok (line, " ");
+            orgString = strtok(NULL, "\0");
+            while (orgString != NULL) {
+                printf("%s", orgString);
+                orgString = strtok(NULL, "\0");
+            }
         }
         lineNum++;
+    }
+    if (!foundMatch) {
+        printf("?");
     }
 }
