@@ -19,7 +19,6 @@
 #define MAX_CHARS_IN 512
 
 
-// void parse_org_file(FILE *orgFilePtr);
 void write_output(FILE *ipFilePtr, FILE *orgFilePtr, int iFlag, int oFlag, int pFlag);
 void lookup_and_print_org(FILE *orgFilePtr, int *ipAddress);
 
@@ -79,7 +78,7 @@ int main(int argc, char **argv) {
     // Tell the user they typed something wrong
     for (i = optind; i < argc; i++) {
         fprintf(stderr, "Invalid argument: %s\n", argv[optind]);
-        exit(EXIT_FAILURE); // Can be removed if we don't want to be fail-fast
+        exit(EXIT_FAILURE); // Can be removed if we don't want to fail-fast
     }
 
     // Check whether an input filename was given
@@ -96,50 +95,53 @@ int main(int argc, char **argv) {
     }
 
     if (oFlag) {
+        // Attempt to open the specified file
         orgFilePtr = fopen(orgFilename, "r");
         if (orgFilePtr == NULL) {
             perror("Error");
             exit(EXIT_FAILURE);
         }
-        // parse_org_file(orgFilePtr);
     }
 
+    // We have our orders. Let's get printing.
     write_output(ipFilePtr, orgFilePtr, iFlag, oFlag, pFlag);
-    // int ipAddress[3] = {177, 52, 162};
-    // lookup_and_print_org(orgFilePtr, ipAddress);
     exit(EXIT_SUCCESS);
 }
 
 void write_output(FILE *ipFilePtr, FILE *orgFilePtr, int iFlag, int oFlag, int pFlag) {
-    /* reusable counting variables */
-    int i, j;
+    /* reusable counting variable */
+    int i;
+    /* the count of all streamed bytes */
+    int numBytesRead;
     /* iterator for bytes in the stream */
     int byte;
-    /* the most recent prefix, used with -p */
+    /* the most recent IP streamed, used for -p and -o */
     int mostRecentIP[BYTES_PER_IP];
 
-    i = 0;
+    numBytesRead = 0;
     do {
+        // Read the next byte
         byte = fgetc(ipFilePtr);
-        // terminate loop upon reaching the end of the file
+        // Terminate loop upon reaching the end of the file
         if (feof(ipFilePtr)) {
             break;
         }
-        // store the current byte in mostRecentIP
-        mostRecentIP[i % BYTES_PER_IP] = byte;
+        // Store the current byte in mostRecentIP
+        mostRecentIP[numBytesRead % BYTES_PER_IP] = byte;
         if (iFlag) {
             printf("%d", byte);
         }
-        if (++i % BYTES_PER_IP == 0) {
+        // If enough bytes have been read to complete another address
+        if (++numBytesRead % BYTES_PER_IP == 0) {
             if (iFlag && (pFlag || oFlag)) {
                 printf(" ");
             }
             if (pFlag) {
-                for (j = 0; j < sizeof(mostRecentIP) / sizeof(mostRecentIP[0]) - 2; j++) {
-                    printf("%d.", mostRecentIP[j]);
+                for (i = 0; i < sizeof(mostRecentIP) / sizeof(mostRecentIP[0]) - 2; i++) {
+                    printf("%d.", mostRecentIP[i]);
                 }
                 // print the last byte without the dot
-                printf("%d", mostRecentIP[j]);
+                printf("%d", mostRecentIP[i]);
                 if (oFlag) {
                     printf(" ");
                 }
@@ -151,6 +153,7 @@ void write_output(FILE *ipFilePtr, FILE *orgFilePtr, int iFlag, int oFlag, int p
                 printf("\n");
             }
         }
+        // We're not at the end of an address yet. Print another dot.
         else if (iFlag) {
             printf(".");
         }
@@ -158,20 +161,27 @@ void write_output(FILE *ipFilePtr, FILE *orgFilePtr, int iFlag, int oFlag, int p
 }
 
 void lookup_and_print_org(FILE *orgFilePtr, int *ipAddress) {
-    char line[MAX_CHARS_IN];
-    int lineNum = 1;
-    int foundMatch = 0;
+    /* reusable counting variable */
     int i = 0;
+    /* string to hold the current line */
+    char line[MAX_CHARS_IN];
+    /* whether or not a prefix has a corresponding organization */
+    int foundMatch = 0;
+    /* string to hold just the prefix */
     char *prefixString = malloc(sizeof(char) * CHARS_PER_IP);
+    /* string to hold just the organization */
     char *orgString;
 
+    // Convert the address from int array to string
     sprintf(prefixString, "%d.", ipAddress[0]);
     for (i = 1; i < sizeof(ipAddress) / sizeof(ipAddress[0]) - 2; i++) {
         sprintf(prefixString + strlen(prefixString), "%d.", ipAddress[i]);
     }
     sprintf(prefixString + strlen(prefixString), "%d", ipAddress[i]);
 
+    // Read line by line until the prefix is found or no lines remain
     while (!foundMatch && fgets(line, MAX_CHARS_IN, orgFilePtr) != NULL) {
+        // If a match is found, print only the organization
         if ((strstr(line, prefixString)) != NULL) {
             foundMatch = 1;
             orgString = strtok (line, " ");
@@ -181,8 +191,8 @@ void lookup_and_print_org(FILE *orgFilePtr, int *ipAddress) {
                 orgString = strtok(NULL, "\0");
             }
         }
-        lineNum++;
     }
+    // If no match is found, print "?"
     if (!foundMatch) {
         printf("?");
     }
