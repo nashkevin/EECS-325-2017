@@ -194,6 +194,6 @@ void lookup_and_print_org(FILE *orgFilePtr, int *ipAddress) {
     }
     // If no match is found, print "?"
     if (!foundMatch) {
-        printf("?");
+        printf("?\n");
     }
 }
