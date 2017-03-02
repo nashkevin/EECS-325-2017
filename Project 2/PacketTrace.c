@@ -210,10 +210,10 @@ void write_output(FILE *trace_fileptr) {
     pkt_last.metadata.timestamp_us = convert_4bytes_int(bytes, TIME_US_END);
 
     printf("PACKETS: %lu\n", (unsigned long)packet_cnt);
-    printf("FIRST: %lu.%lu\n", (unsigned long)pkt_first.metadata.timestamp_s,
-                               (unsigned long)pkt_first.metadata.timestamp_us);
-    printf("LAST: %lu.%lu\n", (unsigned long)pkt_last.metadata.timestamp_s,
-                              (unsigned long)pkt_last.metadata.timestamp_us);
+    printf("FIRST: %lu.%06lu\n", (unsigned long)pkt_first.metadata.timestamp_s,
+                                 (unsigned long)pkt_first.metadata.timestamp_us);
+    printf("LAST: %lu.%06lu\n", (unsigned long)pkt_last.metadata.timestamp_s,
+                                (unsigned long)pkt_last.metadata.timestamp_us);
     uint32_t duration_s = pkt_last.metadata.timestamp_s -
                           pkt_first.metadata.timestamp_s;
     uint32_t duration_us;
