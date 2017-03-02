@@ -9,10 +9,15 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 
-/* The number of bits in a byte, a true constant */
+/* The number of bits in a byte, a constant as true as they come */
 #define BITS_IN_BYTE 8
+/* The number of bytes (octets) in a MAC address */
+#define BYTES_IN_MAC 6
+/* The number of bytes (octets) in the EtherType field */
+#define BYTES_IN_TYPE 2
 /* The maximum number of bytes in a single packet */
 #define BYTES_CACHED 66
 /* The number of bytes in metadata */
@@ -54,7 +59,16 @@ typedef struct {
         /* capture length, the number of bytes captured */
         uint16_t caplen;
     } metadata;
-
+    struct {
+        /* Signifies that the Ethernet header is truncated */
+        int is_truncated;
+        /* The destination MAC address stored as a byte array */
+        uint8_t dst_MAC[BYTES_IN_MAC];
+        /* The source MAC address stored as a byte array */
+        uint8_t src_MAC[BYTES_IN_MAC];
+        /* The EtherType field stored as a byte array */
+        uint8_t EtherType[BYTES_IN_TYPE];
+    } ethernet;
 } Packet;
 
 static struct {
@@ -70,7 +84,8 @@ static struct {
     int m;
 } options;
 
-void write_output(FILE *trace_fileptr);
+void trace_summary(FILE *trace_fileptr);
+void ethernet_dump(FILE *trace_fileptr);
 uint16_t convert_2bytes_int(unsigned char *bytes, int index);
 uint32_t convert_4bytes_int(unsigned char *bytes, int index);
 
@@ -159,11 +174,30 @@ int main(int argc, char **argv) {
         }
     }
 
-    write_output(trace_fileptr);
+    // Begin specified task
+    if (options.s) {
+        trace_summary(trace_fileptr);
+    }
+    else if (options.e) {
+        ethernet_dump(trace_fileptr);
+    }
+    else if (options.i) {
+        // asd;
+    }
+    else if (options.t) {
+        // asd;
+    }
+    else if (options.m) {
+        // asd;
+    }
+
     exit(EXIT_SUCCESS);
 }
 
-void write_output(FILE *trace_fileptr) {
+/**
+ * Prints a four line summary of the trace file
+ */
+void trace_summary(FILE *trace_fileptr) {
     /* reusable counting variable */
     int i;
     /* total number of packets contained in the FILE */
@@ -172,7 +206,7 @@ void write_output(FILE *trace_fileptr) {
     Packet pkt_first;
     /* the last packet in the file */
     Packet pkt_last;
-    pkt_last.metadata.caplen = BYTES_CACHED;
+    pkt_last.metadata.caplen = BYTES_CACHED; // initialize to max caplen
     /* stores some of the most recent bytes read */
     unsigned char bytes[BYTES_CACHED] = {0};
 
@@ -199,6 +233,7 @@ void write_output(FILE *trace_fileptr) {
         if (CAPLEN_END == i) {
             pkt_last.metadata.caplen = convert_2bytes_int(bytes, i);
         }
+        // Reached the end of the packet
         if (i >= pkt_last.metadata.caplen + META_LENGTH - 1) {
             packet_cnt++;
             i = 0;
@@ -227,6 +262,85 @@ void write_output(FILE *trace_fileptr) {
     }
     printf("DURATION: %lu.%06lu\n", (unsigned long)duration_s,
                                     (unsigned long)duration_us);
+}
+
+/**
+ * Prints information from the Ethernet frames found in the trace file
+ */
+void ethernet_dump(FILE *trace_fileptr) {
+    /* reusable counting variable */
+    int i;
+    /* reusable counting variable */
+    int j;
+    /* the current packet */
+    Packet pkt;
+    // Zero all arrays so that we're not accidentally working with garbage
+    memset(pkt.ethernet.dst_MAC, 0, sizeof pkt.ethernet.dst_MAC);
+    memset(pkt.ethernet.src_MAC, 0, sizeof pkt.ethernet.src_MAC);
+    memset(pkt.ethernet.EtherType, 0, sizeof pkt.ethernet.EtherType);
+
+    /* stores some of the most recent bytes read */
+    unsigned char bytes[BYTES_CACHED] = {0};
+
+    while (!feof(trace_fileptr)) {
+        unsigned char byte = fgetc(trace_fileptr);
+        if (feof(trace_fileptr)) {
+            break;
+        }
+        bytes[i] = byte;
+        if (TIME_S_END == i) {
+            pkt.metadata.timestamp_s = convert_4bytes_int(bytes, i);
+        }
+        else if (TIME_US_END == i) {
+            pkt.metadata.timestamp_us = convert_4bytes_int(bytes, i);
+        }
+        else if (CAPLEN_END == i) {
+            pkt.metadata.caplen = convert_2bytes_int(bytes, i);
+            pkt.ethernet.is_truncated =
+                (pkt.metadata.caplen > ETH_HEAD_END - META_LENGTH) ? 0 : 1;
+        }
+        // Reached the end of the Ethernet header
+        else if (ETH_HEAD_END == i) {
+            // Read bytes into destination MAC address
+            for (j = 0; j < BYTES_IN_MAC; j++) {
+                pkt.ethernet.dst_MAC[j] = bytes[ETH_HEAD_START + j];
+            }
+            // Read bytes into source MAC address
+            for (j = 0; j < BYTES_IN_MAC; j++) {
+                pkt.ethernet.src_MAC[j] = bytes[ETH_HEAD_START + BYTES_IN_MAC + j];
+            }
+            // Read bytes into EtherType
+            for (j = 0; j < BYTES_IN_TYPE; j++) {
+                pkt.ethernet.EtherType[j] =
+                    bytes[ETH_HEAD_START + (2 * BYTES_IN_MAC) + j];
+            }
+        }
+        // Reached the end of the packet
+        if (i >= pkt.metadata.caplen + META_LENGTH - 1) {
+            printf("%lu.%06lu ", (unsigned long)pkt.metadata.timestamp_s,
+                                 (unsigned long)pkt.metadata.timestamp_us);
+            if (pkt.ethernet.is_truncated) {
+                printf("Ethernet-truncated\n");
+            } else {
+                printf("%02x", pkt.ethernet.src_MAC[0]);
+                for (j = 1; j < BYTES_IN_MAC; j++) {
+                    printf(":%02x", pkt.ethernet.src_MAC[j]);
+                }
+                printf(" %02x", pkt.ethernet.dst_MAC[0]);
+                for (j = 1; j < BYTES_IN_MAC; j++) {
+                    printf(":%02x", pkt.ethernet.dst_MAC[j]);
+                }
+                printf(" 0x");
+                for (j = 0; j < BYTES_IN_TYPE; j++) {
+                    printf("%02x", pkt.ethernet.EtherType[j]);
+                }
+                printf("\n");
+            }
+            i = 0;
+        } else {
+            i++;
+        }
+    }
 }
 
 /**
