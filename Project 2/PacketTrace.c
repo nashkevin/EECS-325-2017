@@ -220,6 +220,7 @@ void write_output(FILE *trace_fileptr) {
     if (pkt_first.metadata.timestamp_us > pkt_last.metadata.timestamp_us) {
         duration_us = US_DIGIT_MAX - (pkt_first.metadata.timestamp_us -
                                       pkt_last.metadata.timestamp_us);
+        duration_s--;
     } else {
         duration_us = pkt_last.metadata.timestamp_us -
                       pkt_first.metadata.timestamp_us;
