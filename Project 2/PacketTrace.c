@@ -27,6 +27,8 @@
 #define BYTES_CACHED 66
 /* The number of bytes in metadata */
 #define META_LENGTH 12
+/* The number of bytes in the Ethernet header */
+#define ETH_LENGTH 14
 /* One greater than the maximum number representable in six decimal digits */
 #define US_DIGIT_MAX 1000000
 
@@ -62,6 +64,14 @@
 #define IP_SRC_OCT 12
 /* The first octal in an IP header that contains the destination address */
 #define IP_DST_OCT 16
+
+/* The IP protocol number for TCP */
+#define TCP_PROT_NUM 6
+/* The IP protocol number for UDP */
+#define UDP_PROT_NUM 17
+
+/* Same as INT32_MAX, but easier to use without type casting */
+#define MAX_16_BIT 65535
 
 /* Extracts the low nibble from a byte  */
 #define LOW_NIBBLE(byte) ((byte) & 0x0F)
@@ -106,6 +116,29 @@ typedef struct {
     } IP;
 } Packet;
 
+struct counts {
+    /* The number of packets that have a fully intact Ethernet header */
+    uint32_t Ethernet;
+    /* The number of packets that have an incomplete Ethernet header */
+    uint32_t Ethernet_part;
+    /* The number of non-IP packets */
+    uint32_t non_IP;
+    /* The number of packets that have a fully intact IP header */
+    uint32_t IP;
+    /* The number of packets that have an incomplete IP header */
+    uint32_t IP_part;
+    /* The number of unique source IP addresses */
+    uint32_t src_IP;
+    /* The number of unique destination IP addresses */
+    uint32_t dst_IP;
+    /* The number of TCP packets */
+    uint32_t TCP;
+    /* The number of UDP packets */
+    uint32_t UDP;
+    /* The number of packets that use other transport protocols */
+    uint32_t other;
+};
+
 static struct {
     /* specifies printing a trace summary */
     uint8_t s;
@@ -122,6 +155,7 @@ static struct {
 void trace_summary(FILE *trace_fileptr);
 void Ethernet_dump(FILE *trace_fileptr);
 void IP_dump(FILE *trace_fileptr);
+void packet_counts(FILE *trace_fileptr);
 uint16_t convert_2bytes_int(unsigned char *bytes, int index);
 uint32_t convert_4bytes_int(unsigned char *bytes, int index);
 
@@ -221,7 +255,7 @@ int main(int argc, char **argv) {
         IP_dump(trace_fileptr);
     }
     else if (options.t) {
-        // asd;
+        packet_counts(trace_fileptr);
     }
     else if (options.m) {
         // asd;
@@ -239,9 +273,9 @@ void trace_summary(FILE *trace_fileptr) {
     /* total number of packets contained in the FILE */
     unsigned long packet_cnt = 0;
     /* the last packet in the file */
-    Packet pkt_first;
+    Packet pkt_first = {{0}};
     /* the last packet in the file */
-    Packet pkt_last;
+    Packet pkt_last = {{0}};
     pkt_last.metadata.caplen = BYTES_CACHED; // initialize to max caplen
     /* stores some of the most recent bytes read */
     unsigned char bytes[BYTES_CACHED] = {0};
@@ -309,11 +343,7 @@ void Ethernet_dump(FILE *trace_fileptr) {
     /* reusable counting variable */
     int j = 0;
     /* the current packet */
-    Packet pkt;
-    // Zero all arrays so that we're not accidentally working with garbage
-    memset(pkt.Ethernet.dst_MAC, 0, sizeof pkt.Ethernet.dst_MAC);
-    memset(pkt.Ethernet.src_MAC, 0, sizeof pkt.Ethernet.src_MAC);
-    memset(pkt.Ethernet.EtherType, 0, sizeof pkt.Ethernet.EtherType);
+    Packet pkt = {{0}};
 
     /* stores some of the most recent bytes read */
     unsigned char bytes[BYTES_CACHED] = {0};
@@ -386,15 +416,11 @@ void Ethernet_dump(FILE *trace_fileptr) {
  */
 void IP_dump(FILE *trace_fileptr) {
     /* reusable counting variable */
-    int i;
+    int i = 0;
     /* reusable counting variable */
-    int j;
+    int j = 0;
     /* the current packet */
-    Packet pkt;
-    // Zero all arrays so that we're not accidentally working with garbage
-    memset(pkt.Ethernet.dst_MAC, 0, sizeof pkt.Ethernet.dst_MAC);
-    memset(pkt.Ethernet.src_MAC, 0, sizeof pkt.Ethernet.src_MAC);
-    memset(pkt.Ethernet.EtherType, 0, sizeof pkt.Ethernet.EtherType);
+    Packet pkt = {{0}};
 
     /* stores some of the most recent bytes read */
     unsigned char bytes[BYTES_CACHED] = {0};
@@ -434,6 +460,9 @@ void IP_dump(FILE *trace_fileptr) {
         // Reached the end of the fixed IP header
         else if (IP_HEAD_END == i) {
             pkt.IP.headlen = LOW_NIBBLE(bytes[IP_HEAD_START]) * IHL_WORD_SIZE;
+            if (pkt.metadata.caplen != ETH_LENGTH + pkt.IP.headlen) {
+                pkt.IP.is_truncated = 1;
+            }
             pkt.IP.ttl = bytes[IP_HEAD_START + IP_TTL_OCT];
             pkt.IP.protocol = bytes[IP_HEAD_START + IP_PROT_OCT];
             for (j = 0; j < BYTES_IN_IPV4; j++) {
@@ -477,6 +506,133 @@ void IP_dump(FILE *trace_fileptr) {
             i++;
         }
     }
+}
+
+/**
+ *
+ */
+void packet_counts(FILE *trace_fileptr) {
+    /* reusable counting variable */
+    int i;
+    /* reusable counting variable */
+    int j;
+    /* will store numerical conversions of IP addresses */
+    uint32_t IPnumber = 0;
+    /* the current packet */
+    Packet pkt = {{0}};
+    /* counts of specific packet types */
+    struct counts count = {0};
+
+    /* Forgive me. These are going to be large and sparse as hell.
+     * But right now the programmer's time is more valuable than
+     * the memory they eat. Also given the way I'm doing assignments,
+     * A.B.C.D collides with A.B-1.C.D+1
+     * I'm gambling that this case won't appear in your test files...
+     */
+    uint8_t all_src_IPs[MAX_16_BIT] = {0};
+    uint8_t all_dst_IPs[MAX_16_BIT] = {0};
+
+    /* stores some of the most recent bytes read */
+    unsigned char bytes[BYTES_CACHED] = {0};
+
+    i = 0;
+    while (!feof(trace_fileptr)) {
+        unsigned char byte = fgetc(trace_fileptr);
+        if (feof(trace_fileptr)) {
+            break;
+        }
+        bytes[i] = byte;
+        if (CAPLEN_END == i) {
+            pkt.metadata.caplen = convert_2bytes_int(bytes, i);
+            pkt.Ethernet.is_truncated =
+                (pkt.metadata.caplen > ETH_HEAD_END - META_LENGTH) ? 0 : 1;
+            pkt.IP.is_truncated =
+                (pkt.metadata.caplen > IP_HEAD_END - META_LENGTH) ? 0 : 1;
+        }
+        // Reached the end of the Ethernet header
+        else if (ETH_HEAD_END == i) {
+            // Read bytes into EtherType
+            for (j = 0; j < BYTES_IN_TYPE; j++) {
+                pkt.Ethernet.EtherType[j] =
+                    bytes[ETH_HEAD_START + (2 * BYTES_IN_MAC) + j];
+            }
+            if (pkt.Ethernet.EtherType[0] != 0x08 ||
+                pkt.Ethernet.EtherType[1] != 0x00) {
+                pkt.IP.is_non_IP = 1;
+            }
+        }
+        // Reached the end of the fixed IP header
+        else if (IP_HEAD_END == i) {
+            pkt.IP.headlen = LOW_NIBBLE(bytes[IP_HEAD_START]) * IHL_WORD_SIZE;
+            if (pkt.metadata.caplen != ETH_LENGTH + pkt.IP.headlen) {
+                pkt.IP.is_truncated = 1;
+            }
+            // pkt.IP.is_truncated =
+                // (pkt.metadata.caplen > IP_HEAD_END - META_LENGTH) ? 0 : 1;
+            pkt.IP.protocol = bytes[IP_HEAD_START + IP_PROT_OCT];
+            for (j = 0; j < BYTES_IN_IPV4; j++) {
+                pkt.IP.src_IP[j] = bytes[IP_HEAD_START + IP_SRC_OCT + j];
+            }
+            for (j = 0; j < BYTES_IN_IPV4; j++) {
+                pkt.IP.dst_IP[j] = bytes[IP_HEAD_START + IP_DST_OCT + j];
+            }
+        }
+        // Reached the end of the packet
+        if (i >= pkt.metadata.caplen + META_LENGTH - 1) {
+            if (pkt.Ethernet.is_truncated) { // truncated Ethernet header
+                count.Ethernet_part++;
+            }
+            else { // intact Ethernet header
+                count.Ethernet++;
+                if (pkt.IP.is_non_IP) { // non-IP header
+                    count.non_IP++;
+                }
+                else if (pkt.IP.is_truncated) { // truncated IP header
+                    count.IP_part++;
+                }
+                else { // intact IP header
+                    count.IP++;
+                    IPnumber = convert_4bytes_int(pkt.IP.src_IP, BYTES_IN_IPV4 - 1);
+                    IPnumber = IPnumber % MAX_16_BIT;
+                    if (all_src_IPs[IPnumber] == 0) {
+                        all_src_IPs[IPnumber] = 1;
+                        count.src_IP++;
+                    }
+                    IPnumber = convert_4bytes_int(pkt.IP.dst_IP, BYTES_IN_IPV4 - 1);
+                    IPnumber = IPnumber % MAX_16_BIT;
+                    if (all_dst_IPs[IPnumber] == 0) {
+                        all_dst_IPs[IPnumber] = 1;
+                        count.dst_IP++;
+                    }
+                    if (pkt.IP.protocol == TCP_PROT_NUM) {
+                        count.TCP++;
+                    }
+                    else if (pkt.IP.protocol == UDP_PROT_NUM) {
+                        count.UDP++;
+                    }
+                    else {
+                        count.other++;
+                    }
+                }
+            }
+            pkt.Ethernet.is_truncated = 0;
+            pkt.IP.is_truncated = 0;
+            pkt.IP.is_non_IP = 0;
+            i = 0;
+        } else {
+            i++;
+        }
+    }
+    printf("ETH: %lu %lu\n", (long unsigned)count.Ethernet,
+                             (long unsigned)count.Ethernet_part);
+    printf("NON-IP: %lu\n", (long unsigned)count.non_IP);
+    printf("IP: %lu %lu\n", (long unsigned)count.IP,
+                            (long unsigned)count.IP_part);
+    printf("SRC: %lu\n", (long unsigned)count.src_IP);
+    printf("DST: %lu\n", (long unsigned)count.dst_IP);
+    printf("TRANSPORT: %lu %lu %lu\n", (long unsigned)count.TCP,
+                                       (long unsigned)count.UDP,
+                                       (long unsigned)count.other);
 }
 
 /**
