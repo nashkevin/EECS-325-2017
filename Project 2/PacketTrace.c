@@ -416,6 +416,8 @@ void IP_dump(FILE *trace_fileptr) {
             pkt.metadata.caplen = convert_2bytes_int(bytes, i);
             pkt.Ethernet.is_truncated =
                 (pkt.metadata.caplen > ETH_HEAD_END - META_LENGTH) ? 0 : 1;
+            pkt.IP.is_truncated =
+                (pkt.metadata.caplen > IP_HEAD_END - META_LENGTH) ? 0 : 1;
         }
         // Reached the end of the Ethernet header
         else if (ETH_HEAD_END == i) {
@@ -448,11 +450,11 @@ void IP_dump(FILE *trace_fileptr) {
             if (pkt.Ethernet.is_truncated) {
                 printf("unknown\n");
             }
-            else if (pkt.IP.is_truncated) {
-                printf("IP-truncated\n");
-            }
             else if (pkt.IP.is_non_IP) {
                 printf("non-IP\n");
+            }
+            else if (pkt.IP.is_truncated) {
+                printf("IP-truncated\n");
             }
             else {
                 printf("%d", pkt.IP.src_IP[0]);
