@@ -72,6 +72,8 @@
 
 /* Same as INT32_MAX, but easier to use without type casting */
 #define MAX_16_BIT 65535
+/* Arbitrary length for arrays */
+#define ARRAY_SIZE 100
 
 /* Extracts the low nibble from a byte  */
 #define LOW_NIBBLE(byte) ((byte) & 0x0F)
@@ -116,29 +118,6 @@ typedef struct {
     } IP;
 } Packet;
 
-struct counts {
-    /* The number of packets that have a fully intact Ethernet header */
-    uint32_t Ethernet;
-    /* The number of packets that have an incomplete Ethernet header */
-    uint32_t Ethernet_part;
-    /* The number of non-IP packets */
-    uint32_t non_IP;
-    /* The number of packets that have a fully intact IP header */
-    uint32_t IP;
-    /* The number of packets that have an incomplete IP header */
-    uint32_t IP_part;
-    /* The number of unique source IP addresses */
-    uint32_t src_IP;
-    /* The number of unique destination IP addresses */
-    uint32_t dst_IP;
-    /* The number of TCP packets */
-    uint32_t TCP;
-    /* The number of UDP packets */
-    uint32_t UDP;
-    /* The number of packets that use other transport protocols */
-    uint32_t other;
-};
-
 static struct {
     /* specifies printing a trace summary */
     uint8_t s;
@@ -156,6 +135,7 @@ void trace_summary(FILE *trace_fileptr);
 void Ethernet_dump(FILE *trace_fileptr);
 void IP_dump(FILE *trace_fileptr);
 void packet_counts(FILE *trace_fileptr);
+void traffic_matrix(FILE *trace_fileptr);
 uint16_t convert_2bytes_int(unsigned char *bytes, int index);
 uint32_t convert_4bytes_int(unsigned char *bytes, int index);
 
@@ -258,9 +238,8 @@ int main(int argc, char **argv) {
         packet_counts(trace_fileptr);
     }
     else if (options.m) {
-        // asd;
+        traffic_matrix(trace_fileptr);
     }
-
     exit(EXIT_SUCCESS);
 }
 
@@ -512,12 +491,34 @@ void IP_dump(FILE *trace_fileptr) {
  *
  */
 void packet_counts(FILE *trace_fileptr) {
+    struct counts {
+        /* The number of packets that have a fully intact Ethernet header */
+        uint32_t Ethernet;
+        /* The number of packets that have an incomplete Ethernet header */
+        uint32_t Ethernet_part;
+        /* The number of non-IP packets */
+        uint32_t non_IP;
+        /* The number of packets that have a fully intact IP header */
+        uint32_t IP;
+        /* The number of packets that have an incomplete IP header */
+        uint32_t IP_part;
+        /* The number of unique source IP addresses */
+        uint32_t src_IP;
+        /* The number of unique destination IP addresses */
+        uint32_t dst_IP;
+        /* The number of TCP packets */
+        uint32_t TCP;
+        /* The number of UDP packets */
+        uint32_t UDP;
+        /* The number of packets that use other transport protocols */
+        uint32_t other;
+    };
     /* reusable counting variable */
     int i;
     /* reusable counting variable */
     int j;
     /* will store numerical conversions of IP addresses */
-    uint32_t IPnumber = 0;
+    uint32_t IP_number = 0;
     /* the current packet */
     Packet pkt = {{0}};
     /* counts of specific packet types */
@@ -567,8 +568,6 @@ void packet_counts(FILE *trace_fileptr) {
             if (pkt.metadata.caplen != ETH_LENGTH + pkt.IP.headlen) {
                 pkt.IP.is_truncated = 1;
             }
-            // pkt.IP.is_truncated =
-                // (pkt.metadata.caplen > IP_HEAD_END - META_LENGTH) ? 0 : 1;
             pkt.IP.protocol = bytes[IP_HEAD_START + IP_PROT_OCT];
             for (j = 0; j < BYTES_IN_IPV4; j++) {
                 pkt.IP.src_IP[j] = bytes[IP_HEAD_START + IP_SRC_OCT + j];
@@ -592,16 +591,16 @@ void packet_counts(FILE *trace_fileptr) {
                 }
                 else { // intact IP header
                     count.IP++;
-                    IPnumber = convert_4bytes_int(pkt.IP.src_IP, BYTES_IN_IPV4 - 1);
-                    IPnumber = IPnumber % MAX_16_BIT;
-                    if (all_src_IPs[IPnumber] == 0) {
-                        all_src_IPs[IPnumber] = 1;
+                    IP_number = convert_4bytes_int(pkt.IP.src_IP, BYTES_IN_IPV4 - 1);
+                    IP_number %= MAX_16_BIT;
+                    if (all_src_IPs[IP_number] == 0) {
+                        all_src_IPs[IP_number] = 1;
                         count.src_IP++;
                     }
-                    IPnumber = convert_4bytes_int(pkt.IP.dst_IP, BYTES_IN_IPV4 - 1);
-                    IPnumber = IPnumber % MAX_16_BIT;
-                    if (all_dst_IPs[IPnumber] == 0) {
-                        all_dst_IPs[IPnumber] = 1;
+                    IP_number = convert_4bytes_int(pkt.IP.dst_IP, BYTES_IN_IPV4 - 1);
+                    IP_number %= MAX_16_BIT;
+                    if (all_dst_IPs[IP_number] == 0) {
+                        all_dst_IPs[IP_number] = 1;
                         count.dst_IP++;
                     }
                     if (pkt.IP.protocol == TCP_PROT_NUM) {
@@ -633,6 +632,129 @@ void packet_counts(FILE *trace_fileptr) {
     printf("TRANSPORT: %lu %lu %lu\n", (long unsigned)count.TCP,
                                        (long unsigned)count.UDP,
                                        (long unsigned)count.other);
+}
+
+void traffic_matrix(FILE *trace_fileptr) {
+    typedef struct dst_IP {
+        /* number of times the destination appears for a given source */
+        uint16_t appearance_cnt;
+        /* count of all IP data sent between the destination and source */
+        uint16_t data_total;
+        /* The IP address stored as a byte array */
+        uint8_t address[BYTES_IN_IPV4];
+    } dst_IP;
+    typedef struct src_IP {
+        /* The IP address stored as a byte array */
+        uint8_t address[BYTES_IN_IPV4];
+        /* */
+        dst_IP destinations[ARRAY_SIZE];
+    } src_IP;
+
+    /* reusable counting variable */
+    int i;
+    /* reusable counting variable */
+    int j;
+    /* reusable counting variable */
+    int k;
+    /* will store the numerical conversion of the source IP addresses */
+    uint32_t IP_number = 0;
+
+    uint8_t dst_index = -1;
+    uint8_t dst_free_index = 0;
+
+    /* the current packet */
+    Packet pkt = {{0}};
+
+    /* List of all source IPs by appearance */
+    src_IP sources[MAX_16_BIT / 10] = {{{0}}};
+
+    /* stores some of the most recent bytes read */
+    unsigned char bytes[BYTES_CACHED] = {0};
+
+    i = 0;
+    while (!feof(trace_fileptr)) {
+        unsigned char byte = fgetc(trace_fileptr);
+        if (feof(trace_fileptr)) {
+            break;
+        }
+        bytes[i] = byte;
+        if (CAPLEN_END == i) {
+            pkt.metadata.caplen = convert_2bytes_int(bytes, i);
+        }
+        // Reached the end of the fixed IP header
+        if (IP_HEAD_END == i) {
+            printf("Actually got here\n");
+            pkt.IP.headlen = LOW_NIBBLE(bytes[IP_HEAD_START]) * IHL_WORD_SIZE;
+            for (j = 0; j < BYTES_IN_IPV4; j++) {
+                pkt.IP.src_IP[j] = bytes[IP_HEAD_START + IP_SRC_OCT + j];
+            }
+            for (j = 0; j < BYTES_IN_IPV4; j++) {
+                pkt.IP.dst_IP[j] = bytes[IP_HEAD_START + IP_DST_OCT + j];
+            }
+
+            IP_number = convert_4bytes_int(pkt.IP.src_IP, BYTES_IN_IPV4 - 1);
+            IP_number %= MAX_16_BIT / 10;
+
+            for (j = 0; j < BYTES_IN_IPV4; j++) {
+                sources[IP_number].address[j] = pkt.IP.src_IP[j];
+            }
+
+            for (j = 0; j < ARRAY_SIZE && dst_index == -1; j++) {
+                for (k = 0; k < BYTES_IN_IPV4; k++) {
+                    if (sources[IP_number].destinations[j].address[k] !=
+                        pkt.IP.dst_IP[j]) {
+                        dst_index = -1;
+                        break;
+                    }
+                    else {
+                        dst_index = j;
+                    }
+                    printf("dst_index: %d\n", dst_index);
+                }
+            }
+            // destination does not already exist in source
+            if (-1 == dst_index) {
+                dst_index = dst_free_index++;
+                for (j = 0; j < BYTES_IN_IPV4; j++) {
+                    sources[IP_number].destinations[dst_index].address[j] =
+                        pkt.IP.dst_IP[j];
+                }
+                sources[IP_number].destinations[dst_index].appearance_cnt = 1;
+                sources[IP_number].destinations[dst_index].data_total =
+                    pkt.IP.headlen;
+            }
+            // destination already exists in source
+            else {
+                sources[IP_number].destinations[dst_index].appearance_cnt++;
+                sources[IP_number].destinations[dst_index].data_total +=
+                    pkt.IP.headlen;
+            }
+        }
+        // Reached the end of the packet
+        if (i >= pkt.metadata.caplen + META_LENGTH - 1) {
+            i = 0;
+        } else {
+            i++;
+        }
+    }
+    for (i = 0; i < MAX_16_BIT; i++) {
+        if (sources[i].address[0] != 0) {
+            printf("%d", sources[i].address[0]);
+            for (j = 1; j < BYTES_IN_IPV4; j++) {
+                printf(".%d", pkt.IP.src_IP[j]);
+            }
+            for (j = 0; j < MAX_16_BIT; j++) {
+                if (sources[i].destinations[j].address[0] != 0) {
+                    printf(" %d", sources[i].destinations[j].address[0]);
+                    for (k = 1; j < BYTES_IN_IPV4; k++) {
+                        printf(".%d", sources[i].destinations[j].address[k]);
+                    }
+                    printf(" %d", sources[i].destinations[j].appearance_cnt);
+                    printf(" %d\n", sources[i].destinations[j].data_total);
+                }
+            }
+        }
+    }
 }
 
 /**

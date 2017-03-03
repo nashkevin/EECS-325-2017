@@ -5,6 +5,14 @@ make:
 clean:
 	rm -f *.o
 
+stress:
+	gcc PacketTrace.c -g -o proj2
+	./proj2 -r 425-ref.dmp -s > stress-s.out
+	./proj2 -r 425-ref.dmp -e > stress-e.out
+	./proj2 -r 425-ref.dmp -i > stress-i.out
+	./proj2 -r 425-ref.dmp -t > stress-t.out
+	#./proj2 -r 425-ref.dmp -m > stress-m.out
+
 test:
 	gcc PacketTrace.c -g -o proj2
 	./proj2 -r sample-A1.dmp -s > testA1-s.out
