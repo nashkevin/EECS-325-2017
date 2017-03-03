@@ -36,3 +36,10 @@
 *.list
 *.out
 *.dmp
+
+# Archives
+*.gz
+*.tar.gz
+*.dmp.gz
+*.zip
+*.7z

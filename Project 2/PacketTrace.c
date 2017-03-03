@@ -271,9 +271,7 @@ void trace_summary(FILE *trace_fileptr) {
         }
         // Reached the end of the packet
         if (i >= pkt_last.metadata.caplen + META_LENGTH - 1) {
-            printf("packet_cnt before: %lu\n", packet_cnt);
             packet_cnt++;
-            printf("packet_cnt after: %lu\n", packet_cnt);
             i = 0;
         } else {
             i++;
