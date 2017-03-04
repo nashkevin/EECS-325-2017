@@ -70,10 +70,8 @@
 /* The IP protocol number for UDP */
 #define UDP_PROT_NUM 17
 
-/* Same as INT32_MAX, but easier to use without type casting */
-#define MAX_16_BIT 65535
-/* Arbitrary length for arrays */
-#define ARRAY_SIZE 100
+/* Sentinel value for when a destination address is not found */
+#define DST_NOT_FOUND -1
 
 /* Extracts the low nibble from a byte  */
 #define LOW_NIBBLE(byte) ((byte) & 0x0F)
@@ -530,8 +528,8 @@ void packet_counts(FILE *trace_fileptr) {
      * A.B.C.D collides with A.B-1.C.D+1
      * I'm gambling that this case won't appear in your test files...
      */
-    uint8_t all_src_IPs[MAX_16_BIT] = {0};
-    uint8_t all_dst_IPs[MAX_16_BIT] = {0};
+    uint8_t all_src_IPs[UINT16_MAX] = {0};
+    uint8_t all_dst_IPs[UINT16_MAX] = {0};
 
     /* stores some of the most recent bytes read */
     unsigned char bytes[BYTES_CACHED] = {0};
@@ -592,13 +590,13 @@ void packet_counts(FILE *trace_fileptr) {
                 else { // intact IP header
                     count.IP++;
                     IP_number = convert_4bytes_int(pkt.IP.src_IP, BYTES_IN_IPV4 - 1);
-                    IP_number %= MAX_16_BIT;
+                    IP_number %= UINT16_MAX;
                     if (all_src_IPs[IP_number] == 0) {
                         all_src_IPs[IP_number] = 1;
                         count.src_IP++;
                     }
                     IP_number = convert_4bytes_int(pkt.IP.dst_IP, BYTES_IN_IPV4 - 1);
-                    IP_number %= MAX_16_BIT;
+                    IP_number %= UINT16_MAX;
                     if (all_dst_IPs[IP_number] == 0) {
                         all_dst_IPs[IP_number] = 1;
                         count.dst_IP++;
@@ -647,7 +645,7 @@ void traffic_matrix(FILE *trace_fileptr) {
         /* The IP address stored as a byte array */
         uint8_t address[BYTES_IN_IPV4];
         /* */
-        dst_IP destinations[ARRAY_SIZE];
+        dst_IP destinations[INT8_MAX];
     } src_IP;
 
     /* reusable counting variable */
@@ -659,14 +657,15 @@ void traffic_matrix(FILE *trace_fileptr) {
     /* will store the numerical conversion of the source IP addresses */
     uint32_t IP_number = 0;
 
-    uint8_t dst_index = -1;
-    uint8_t dst_free_index = 0;
+    int8_t dst_index = DST_NOT_FOUND;
+    int8_t dst_free_index = 0;
+    uint8_t updated_free = 0;
 
     /* the current packet */
     Packet pkt = {{0}};
 
     /* List of all source IPs by appearance */
-    src_IP sources[MAX_16_BIT / 10] = {{{0}}};
+    src_IP sources[UINT16_MAX / 10] = {{{0}}};
 
     /* stores some of the most recent bytes read */
     unsigned char bytes[BYTES_CACHED] = {0};
@@ -683,7 +682,6 @@ void traffic_matrix(FILE *trace_fileptr) {
         }
         // Reached the end of the fixed IP header
         if (IP_HEAD_END == i) {
-            printf("Actually got here\n");
             pkt.IP.headlen = LOW_NIBBLE(bytes[IP_HEAD_START]) * IHL_WORD_SIZE;
             for (j = 0; j < BYTES_IN_IPV4; j++) {
                 pkt.IP.src_IP[j] = bytes[IP_HEAD_START + IP_SRC_OCT + j];
@@ -693,28 +691,33 @@ void traffic_matrix(FILE *trace_fileptr) {
             }
 
             IP_number = convert_4bytes_int(pkt.IP.src_IP, BYTES_IN_IPV4 - 1);
-            IP_number %= MAX_16_BIT / 10;
+            IP_number %= UINT16_MAX / 10;
 
             for (j = 0; j < BYTES_IN_IPV4; j++) {
                 sources[IP_number].address[j] = pkt.IP.src_IP[j];
             }
 
-            for (j = 0; j < ARRAY_SIZE && dst_index == -1; j++) {
+            dst_index = DST_NOT_FOUND;
+            dst_free_index = 0;
+            updated_free = 0;
+            for (j = 0; (j < INT8_MAX) && (DST_NOT_FOUND == dst_index); j++) {
+                if (!updated_free && (sources[IP_number].destinations[j].address[0] == 0)) {
+                    dst_free_index = j;
+                    updated_free = 1;
+                }
                 for (k = 0; k < BYTES_IN_IPV4; k++) {
                     if (sources[IP_number].destinations[j].address[k] !=
-                        pkt.IP.dst_IP[j]) {
-                        dst_index = -1;
+                        pkt.IP.dst_IP[k]) {
                         break;
                     }
                     else {
                         dst_index = j;
                     }
-                    printf("dst_index: %d\n", dst_index);
                 }
             }
             // destination does not already exist in source
-            if (-1 == dst_index) {
-                dst_index = dst_free_index++;
+            if (DST_NOT_FOUND == dst_index) {
+                dst_index = dst_free_index;
                 for (j = 0; j < BYTES_IN_IPV4; j++) {
                     sources[IP_number].destinations[dst_index].address[j] =
                         pkt.IP.dst_IP[j];
@@ -737,16 +740,17 @@ void traffic_matrix(FILE *trace_fileptr) {
             i++;
         }
     }
-    for (i = 0; i < MAX_16_BIT; i++) {
+    #if 1
+    for (i = 0; i < (UINT16_MAX / 10); i++) {
         if (sources[i].address[0] != 0) {
             printf("%d", sources[i].address[0]);
             for (j = 1; j < BYTES_IN_IPV4; j++) {
-                printf(".%d", pkt.IP.src_IP[j]);
+                printf(".%d", sources[i].address[j]);
             }
-            for (j = 0; j < MAX_16_BIT; j++) {
+            for (j = 0; j < 1; j++) {
                 if (sources[i].destinations[j].address[0] != 0) {
                     printf(" %d", sources[i].destinations[j].address[0]);
-                    for (k = 1; j < BYTES_IN_IPV4; k++) {
+                    for (k = 1; k < BYTES_IN_IPV4; k++) {
                         printf(".%d", sources[i].destinations[j].address[k]);
                     }
                     printf(" %d", sources[i].destinations[j].appearance_cnt);
@@ -755,6 +759,7 @@ void traffic_matrix(FILE *trace_fileptr) {
             }
         }
     }
+    #endif
 }
 
 /**
