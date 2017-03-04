@@ -1,0 +1,12 @@
+Kevin Nash (kjn33)
+EECS 325, Project 2
+
+-m is correct sometimes. That's all I know. It's 2:47 pm on the Saturday after
+the due date, so I don't have time to dig deeper, but I feel like it's one or
+two simple bugs throwing things off.
+
+Everything else should work quickly and correctly.
+
+I have it the default rule "make" set to compile everything.
+
+Enjoy.

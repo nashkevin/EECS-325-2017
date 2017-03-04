@@ -56,6 +56,8 @@
 #define IP_HEAD_START 26
 #define IP_HEAD_END 45
 
+/* The first octal in an IP header that contains the total length */
+#define IP_TOTLEN_OCT 2
 /* The octal in an IP header that contains the TTL */
 #define IP_TTL_OCT 8
 /* The octal in an IP header that contains the transport protocol */
@@ -105,6 +107,8 @@ typedef struct {
         uint8_t is_truncated;
         /* The length of the IP header in decimal */
         uint8_t headlen;
+        /* The the entire packet size in bytes */
+        uint8_t totlen;
         /* The protocol number, in decimal, of the transport protocol */
         uint8_t protocol;
         /* The time to live in decimal */
@@ -682,7 +686,8 @@ void traffic_matrix(FILE *trace_fileptr) {
         }
         // Reached the end of the fixed IP header
         if (IP_HEAD_END == i) {
-            pkt.IP.headlen = LOW_NIBBLE(bytes[IP_HEAD_START]) * IHL_WORD_SIZE;
+            // pkt.IP.headlen = LOW_NIBBLE(bytes[IP_HEAD_START]) * IHL_WORD_SIZE;
+            pkt.IP.totlen = convert_2bytes_int(bytes, IP_HEAD_START + IP_TOTLEN_OCT + 1);
             for (j = 0; j < BYTES_IN_IPV4; j++) {
                 pkt.IP.src_IP[j] = bytes[IP_HEAD_START + IP_SRC_OCT + j];
             }
@@ -724,13 +729,13 @@ void traffic_matrix(FILE *trace_fileptr) {
                 }
                 sources[IP_number].destinations[dst_index].appearance_cnt = 1;
                 sources[IP_number].destinations[dst_index].data_total =
-                    pkt.IP.headlen;
+                    pkt.IP.totlen;
             }
             // destination already exists in source
             else {
                 sources[IP_number].destinations[dst_index].appearance_cnt++;
                 sources[IP_number].destinations[dst_index].data_total +=
-                    pkt.IP.headlen;
+                    pkt.IP.totlen;
             }
         }
         // Reached the end of the packet
