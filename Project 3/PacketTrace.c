@@ -341,7 +341,6 @@ void print_dump(FILE *trace_fileptr) {
 
         // Reached the end of the packet
         if (pkt.meta.caplen + META_END - 1 <= i) {
-            i = 0;
             if (0 == pkt.ignore) {
                 printf("%lu.%06lu ", (unsigned long)pkt.meta.timestamp_s,
                                      (unsigned long)pkt.meta.timestamp_us);
@@ -371,8 +370,9 @@ void print_dump(FILE *trace_fileptr) {
                 else {
                     printf(" ?\n");
                 }
-                pkt.ignore = 0;
             }
+            pkt.ignore = 0;
+            i = 0;
         } else {
             i++;
         }
