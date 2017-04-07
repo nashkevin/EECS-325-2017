@@ -243,8 +243,11 @@ void print_dump(FILE *trace_fileptr) {
     int i = 0;
     /* reusable counting variable */
     int j = 0;
+    /* model empty Packet */
+    static const Packet emptyPacket;
     /* the current packet */
     Packet pkt = {0};
+
     pkt.meta.caplen = MAX_PKT_SIZE; // initialize to max
 
     /* stores some of the most recent bytes read */
@@ -268,7 +271,7 @@ void print_dump(FILE *trace_fileptr) {
             pkt.meta.caplen = convert_2bytes_int(bytes, i);
             if (pkt.meta.caplen < MIN_PKT_SIZE) {
                 pkt.ignore = 1;
-                printf("Set to ignore (1)\n");
+                // printf("Set to ignore (%u < %u)\n", pkt.meta.caplen, MIN_PKT_SIZE);
             }
         }
         // Reached the end of the Ethernet header
@@ -278,7 +281,7 @@ void print_dump(FILE *trace_fileptr) {
             }
             if (2048 != convert_2bytes_int(pkt.Eth.EtherType, BYTES_IN_TYPE - 1)) {
                 pkt.ignore = 1;
-                // printf("Set to ignore (2)\n");
+                // printf("Set to ignore (%u != 2048)\n", convert_2bytes_int(pkt.Eth.EtherType, BYTES_IN_TYPE - 1));
             }
         }
         // Reached the begining of the fixed IP header
@@ -292,7 +295,7 @@ void print_dump(FILE *trace_fileptr) {
             pkt.IP.protocol = bytes[i];
             if (6 != pkt.IP.protocol && 17 != pkt.IP.protocol) {
                 pkt.ignore = 1;
-                // printf("Set to ignore (3)\n");
+                // printf("Set to ignore (%u not in {6, 17})\n", pkt.IP.protocol);
             }
         }
         else if (IP_SRC_END + pkt.IP.optlen == i) {
@@ -321,10 +324,10 @@ void print_dump(FILE *trace_fileptr) {
             }
             else if (TCP_DATA_OFFSET + pkt.IP.optlen == i) {
                 pkt.trans.data_offset = HIGH_NIBBLE(bytes[i]) * TCP_WORD_SIZE;
-                if (pkt.meta.caplen < pkt.trans.data_offset + pkt.IP.optlen +
-                    IP_HEADER_LEN) {
+                if (pkt.meta.caplen < ETH_HEADER_LEN + IP_HEADER_LEN +
+                    pkt.IP.optlen + pkt.trans.data_offset) {
                     pkt.ignore = 1;
-                    printf("Set to ignore (4)\n");
+                    // printf("Set to ignore (%u < %u + %u + %u + %u)\n", pkt.meta.caplen, ETH_HEADER_LEN, IP_HEADER_LEN, pkt.IP.optlen, pkt.trans.data_offset);
                 }
             }
         }
@@ -334,7 +337,7 @@ void print_dump(FILE *trace_fileptr) {
                 if (pkt.meta.caplen < ETH_HEADER_LEN + IP_HEADER_LEN +
                     pkt.IP.optlen + UDP_HEADER_LEN) {
                     pkt.ignore = 1;
-                    printf("Set to ignore (5)\n");
+                    // printf("Set to ignore (%u < %u + %u + %u + %u)\n", pkt.meta.caplen, ETH_HEADER_LEN, IP_HEADER_LEN, pkt.IP.optlen, UDP_HEADER_LEN);
                 }
             }
         }
@@ -371,7 +374,7 @@ void print_dump(FILE *trace_fileptr) {
                     printf(" ?\n");
                 }
             }
-            pkt.ignore = 0;
+            pkt = emptyPacket;
             i = 0;
         } else {
             i++;
