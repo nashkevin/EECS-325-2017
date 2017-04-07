@@ -17,3 +17,7 @@ test:
 	diff sample-C-p.out testC-p.out
 	diff sample-E-p.out testE-p.out
 	diff sample-H-p.out testH-p.out
+
+stress:
+	gcc PacketTrace.c -g -o proj3
+	./proj3 -r sample-I.dmp -p > testI-p.out
