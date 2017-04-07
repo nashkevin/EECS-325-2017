@@ -7,6 +7,7 @@ clean:
 
 test:
 	gcc PacketTrace.c -g -o proj3
+	# TESTING PACKET DUMPS
 	./proj3 -r sample-A.dmp -p > testA-p.out
 	./proj3 -r sample-B.dmp -p > testB-p.out
 	./proj3 -r sample-C.dmp -p > testC-p.out
@@ -17,6 +18,13 @@ test:
 	diff sample-C-p.out testC-p.out
 	diff sample-E-p.out testE-p.out
 	diff sample-H-p.out testH-p.out
+	# TESTING CONNECTION SUMMARIES
+	./proj3 -r sample-A.dmp -s > testA-s.out
+	./proj3 -r sample-B.dmp -s > testB-s.out
+	./proj3 -r sample-C.dmp -s > testC-s.out
+	diff sample-A-s.out testA-s.out
+	diff sample-B-s.out testB-s.out
+	diff sample-C-s.out testC-s.out
 
 stress:
 	gcc PacketTrace.c -g -o proj3

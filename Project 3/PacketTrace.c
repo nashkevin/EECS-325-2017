@@ -20,6 +20,8 @@
 #define MIN_PKT_SIZE 42  // 14 Eth + 20 IP + 8 UDP (TCP would be larger at 20)
 /* The maximum number of bytes in a single packet */
 #define MAX_PKT_SIZE 65535
+/* One greater than the maximum number representable in six decimal digits */
+#define US_DIGIT_MAX 1000000
 /* The EtherType for IPv4 in decimal */
 #define IP_ETHERTYPE 2048  // 0x0800
 /* The size, in bytes, of words specified in the IHL field */
@@ -184,11 +186,19 @@ typedef struct {
 
 void stream_bytes(FILE *trace_fileptr);
 void dump_packet(Packet pkt);
+void add_connection(Packet pkt);
 uint32_t get_connection_id(Packet pkt);
-void print_summary(FILE *trace_fileptr);
+void double_cxns_cap();
+void print_connections();
 void print_rtt(FILE *trace_fileptr);
 uint16_t convert_2bytes_int(unsigned char *bytes, int index);
 uint32_t convert_4bytes_int(unsigned char *bytes, int index);
+
+/* array of connections and its utilities */
+short int curr_cxns_size = INITIAL_LENGTH;
+Connection *cxns;
+// cxns = (Connection*)malloc(sizeof(Connection) * INITIAL_LENGTH);
+short int num_unique_cxns = 0;
 
 int main(int argc, char **argv) {
     /* reusable counting variable */
@@ -205,6 +215,9 @@ int main(int argc, char **argv) {
 
     /* external variable set to zero to override getopt error handling */
     opterr = 0;
+
+    /* initialize cxns */
+    cxns = (Connection*)malloc(sizeof(Connection) * INITIAL_LENGTH);
 
     // Parse arguments
     while (-1 != (option = getopt(argc, argv, "r:pst")))
@@ -279,10 +292,6 @@ void stream_bytes(FILE *trace_fileptr) {
     int j = 0;
     /* model empty Packet */
     static const Packet emptyPacket;
-    /* array of connections and its utilities */
-    short int curr_array_len = INITIAL_LENGTH;
-    Connection cxns[INITIAL_LENGTH] = {0};
-    short int num_unique_cxns = 0;
     /* the current packet */
     Packet pkt = {0};
 
@@ -382,12 +391,13 @@ void stream_bytes(FILE *trace_fileptr) {
 
         // Reached the end of the packet
         if (pkt.meta.caplen + META_END - 1 <= i) {
+            // Packet is intact and of interest
             if (0 == pkt.ignore) {
                 if (options.p) {
                     dump_packet(pkt);
                 }
                 else if (options.s) {
-                    add_connection(cxns, pkt);
+                    add_connection(pkt);
                 }
             }
             pkt = emptyPacket;
@@ -395,6 +405,9 @@ void stream_bytes(FILE *trace_fileptr) {
         } else {
             i++;
         }
+    }
+    if (options.s) {
+        print_connections();
     }
 }
 
@@ -432,37 +445,81 @@ void dump_packet(Packet pkt) {
     }
 }
 
-void add_connection(Connection[] cxns, Packet pkt) {
+void add_connection(Packet pkt) {
     int i = 0;
-    uint32_t id = get_connection_id(pkt)
+    uint32_t id = get_connection_id(pkt);
     uint8_t id_is_new = 1;
     for (i = 0; i < num_unique_cxns; i++) {
-        // this ID already exists
+        // This ID already exists
         if (cxns[i].id == id) {
             id_is_new = 0;
             cxns[i].last_ts_s = pkt.meta.timestamp_s;
             cxns[i].last_ts_us = pkt.meta.timestamp_us;
+            // Source IP matches the originator IP
             if (convert_4bytes_int(pkt.IP.src_IP, BYTES_IN_IPV4 - 1) ==
                 convert_4bytes_int(cxns[i].orig_IP, BYTES_IN_IPV4 - 1)) {
                 cxns[i].o_to_r_pkts++;
-                cxns[i].o_to_r_bytes += pkt.IP.totlen -
-                    (pkt.IP.optlen + IP_HEADER_LEN +
-                     pkt.trans.data_offset);;
+                // The transport protocol is UDP
+                if (UDP_PROTOCOL == pkt.IP.protocol) {
+                    cxns[i].o_to_r_bytes += pkt.trans.length;
+                }
+                // We assume the transport protocol is TCP
+                else {
+                    cxns[i].o_to_r_bytes += pkt.IP.totlen -
+                        (pkt.IP.optlen + IP_HEADER_LEN +
+                         pkt.trans.data_offset);
+                }
             }
-            /* the number of packets sent from the responder to the originator */
-            uint32_t r_to_o_pkts;
-            /* the number of payload bytes from the responder to the originator */
-            uint32_t r_to_o_bytes;
+            // We assume source IP must match responder IP
+            else {
+                cxns[i].r_to_o_pkts++;
+                // The transport protocol is UDP
+                if (UDP_PROTOCOL == pkt.IP.protocol) {
+                    cxns[i].r_to_o_bytes += pkt.trans.length;
+                }
+                // We assume the transport protocol is TCP
+                else {
+                    cxns[i].r_to_o_bytes += pkt.IP.totlen -
+                        (pkt.IP.optlen + IP_HEADER_LEN +
+                         pkt.trans.data_offset);
+                }
+            }
             break;
         }
     }
+    // This connection's combination of endpoints and protocol is new
     if (id_is_new) {
         // If the array is full, copy it into a larger array
-        if (curr_array_len <= num_unique_cxns) {
-            cxns = copy_into_new(cxns, curr_array_len);
-            curr_array_len *= 2;
+        if (curr_cxns_size <= num_unique_cxns) {
+            cxns = (Connection*)realloc(cxns, curr_cxns_size * 2);
         }
-        cxns[num_unique_cxns];
+        cxns[num_unique_cxns].id = id;
+        cxns[num_unique_cxns].first_ts_s = pkt.meta.timestamp_s;
+        cxns[num_unique_cxns].first_ts_us = pkt.meta.timestamp_us;
+        cxns[num_unique_cxns].last_ts_s = pkt.meta.timestamp_s;
+        cxns[num_unique_cxns].last_ts_us = pkt.meta.timestamp_us;
+        for (i = 0; i < BYTES_IN_IPV4; i++) {
+            cxns[num_unique_cxns].orig_IP[i] = pkt.IP.src_IP[i];
+        }
+        cxns[num_unique_cxns].orig_port = pkt.trans.src_port;
+        for (i = 0; i < BYTES_IN_IPV4; i++) {
+            cxns[num_unique_cxns].resp_IP[i] = pkt.IP.dst_IP[i];
+        }
+        cxns[num_unique_cxns].resp_port = pkt.trans.dst_port;
+        cxns[num_unique_cxns].protocol = pkt.IP.protocol;
+        cxns[num_unique_cxns].o_to_r_pkts = 1;
+        // The transport protocol is UDP
+        if (UDP_PROTOCOL == pkt.IP.protocol) {
+            cxns[num_unique_cxns].o_to_r_bytes = pkt.trans.length;
+        }
+        // We assume the transport protocol is TCP
+        else {
+            cxns[num_unique_cxns].o_to_r_bytes = pkt.IP.totlen -
+                (pkt.IP.optlen + IP_HEADER_LEN +
+                 pkt.trans.data_offset);
+        }
+        cxns[num_unique_cxns].r_to_o_pkts = 0;
+        cxns[num_unique_cxns].r_to_o_bytes = 0;
         num_unique_cxns++;
     }
 }
@@ -474,18 +531,67 @@ uint32_t get_connection_id(Packet pkt) {
            ((UDP_PROTOCOL == pkt.IP.protocol) ? 1 : 0);
 }
 
-Packet *copy_into_new(Packet[] array, size) {
+/**
+ * When the array of connections reaches its capacity,
+ * use this method to copy the connections into a new array
+ * with twice the capacity of the original
+ */
+void double_cxns_cap() {
     int i = 0;
-    // double the length
-    Connection cxns[size * 2] = {0};
-    for (i = 0; i < size; i++) {
-        array[i] = cxns[i];
+    Connection cxns_new[curr_cxns_size * 2];
+    for (i = 0; i < curr_cxns_size; i++) {
+        cxns_new[i] = cxns[i];
     }
-    return cxns;
+    cxns = cxns_new;
+    curr_cxns_size *= 2;
 }
 
-void print_summary(FILE *trace_fileptr) {
-    ;
+void print_connections() {
+    int i;
+    int j;
+    uint32_t duration_s;
+    uint32_t duration_us;
+    for (i = 0; i < num_unique_cxns; i++) {
+        printf("%lu.%06lu ", (unsigned long)cxns[i].first_ts_s,
+                              (unsigned long)cxns[i].first_ts_us);
+        duration_s = cxns[i].last_ts_s - cxns[i].first_ts_s;
+        if (cxns[i].first_ts_us > cxns[i].last_ts_us) {
+            duration_us = US_DIGIT_MAX - (cxns[i].first_ts_us - cxns[i].last_ts_us);
+            duration_s--;
+        } else {
+            duration_us = cxns[i].last_ts_us - cxns[i].first_ts_us;
+        }
+        printf("%lu.%06lu ", (unsigned long)duration_s,
+                             (unsigned long)duration_us);
+        printf("%u", cxns[i].orig_IP[0]);
+        for (j = 1; j < BYTES_IN_IPV4; j++) {
+            printf(".%u", cxns[i].orig_IP[j]);
+        }
+        printf(" %u ", cxns[i].orig_port);
+        printf("%u", cxns[i].resp_IP[0]);
+        for (j = 1; j < BYTES_IN_IPV4; j++) {
+            printf(".%u", cxns[i].resp_IP[j]);
+        }
+        printf(" %u ", cxns[i].resp_port);
+        if (UDP_PROTOCOL == cxns[i].protocol) {
+            printf("U ");
+        }
+        else if (TCP_PROTOCOL == cxns[i].protocol) {
+            printf("T ");
+        }
+        else {
+            printf("? ");
+        }
+        printf("%lu ", (unsigned long)cxns[i].o_to_r_pkts);
+        printf("%lu ", (unsigned long)cxns[i].o_to_r_bytes);
+        if (0 == cxns[i].r_to_o_pkts) {
+            printf("? ?\n");
+        }
+        else {
+            printf("%lu ", (unsigned long)cxns[i].r_to_o_pkts);
+            printf("%lu\n", (unsigned long)cxns[i].r_to_o_bytes);
+        }
+    }
 }
 
 void print_rtt(FILE *trace_fileptr) {
