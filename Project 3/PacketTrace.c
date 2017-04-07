@@ -41,8 +41,8 @@
 
 /* Largest prime X such that (2^32 > 2 * (2^32 mod X) + 2 * 2^16 + 1) */
 #define MAGIC_NUMBER 2147418083u
-/* Arbitrary initial length for array of Connections, fairly conservative */
-#define INITIAL_LENGTH 20
+/* Arbitrary initial length for array of Connections :( */
+#define INITIAL_LENGTH 100
 
 /* The number of bytes (octets) in the EtherType field */
 #define BYTES_IN_TYPE 2
@@ -197,7 +197,6 @@ uint32_t convert_4bytes_int(unsigned char *bytes, int index);
 /* array of connections and its utilities */
 short int curr_cxns_size = INITIAL_LENGTH;
 Connection *cxns;
-// cxns = (Connection*)malloc(sizeof(Connection) * INITIAL_LENGTH);
 short int num_unique_cxns = 0;
 
 int main(int argc, char **argv) {
@@ -217,7 +216,11 @@ int main(int argc, char **argv) {
     opterr = 0;
 
     /* initialize cxns */
-    cxns = (Connection*)malloc(sizeof(Connection) * INITIAL_LENGTH);
+    cxns = malloc(sizeof(*cxns) * INITIAL_LENGTH);
+    if (!cxns) {
+        fprintf(stderr, "Could not allocate memory for connection summaries");
+        exit(EXIT_FAILURE);
+    }
 
     // Parse arguments
     while (-1 != (option = getopt(argc, argv, "r:pst")))
@@ -408,6 +411,7 @@ void stream_bytes(FILE *trace_fileptr) {
     }
     if (options.s) {
         print_connections();
+        free(cxns);
     }
 }
 
@@ -491,7 +495,16 @@ void add_connection(Packet pkt) {
     if (id_is_new) {
         // If the array is full, copy it into a larger array
         if (curr_cxns_size <= num_unique_cxns) {
-            cxns = (Connection*)realloc(cxns, curr_cxns_size * 2);
+            size_t newsize = sizeof(*cxns) * (curr_cxns_size * 2);
+            Connection *cxns_new = realloc(cxns, newsize);
+            if (!cxns_new) {
+                fprintf(stderr, "Could not expand memory for additional connection summaries");
+                exit(EXIT_FAILURE);
+            }
+            else {
+                cxns = cxns_new;
+                curr_cxns_size *= 2;
+            }
         }
         cxns[num_unique_cxns].id = id;
         cxns[num_unique_cxns].first_ts_s = pkt.meta.timestamp_s;
