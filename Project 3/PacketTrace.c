@@ -184,20 +184,55 @@ typedef struct {
     uint32_t r_to_o_bytes;
 } Connection;
 
+typedef struct {
+    /* A (mostly) unique identifier */
+    uint32_t id;
+    /* The originator IP address */
+    uint8_t orig_IP[BYTES_IN_IPV4];
+    /* The originator port number */
+    uint16_t orig_port;
+    /* The responder IP address */
+    uint8_t resp_IP[BYTES_IN_IPV4];
+    /* The responder port number */
+    uint16_t resp_port;
+    /*  */
+    uint32_t o_rtt_start_s;
+    uint32_t o_rtt_start_us;
+    
+    uint32_t o_rtt_end_s;
+    uint32_t o_rtt_end_us;
+
+    uint32_t o_rtt_seqn;
+
+    uint32_t r_rtt_start_s;
+    uint32_t r_rtt_start_us;
+
+    uint32_t r_rtt_end_s;
+    uint32_t r_rtt_end_us;
+
+    uint32_t r_rtt_seqn;
+
+} RTT;
+
 void stream_bytes(FILE *trace_fileptr);
 void dump_packet(Packet pkt);
 void add_connection(Packet pkt);
 uint32_t get_connection_id(Packet pkt);
-void double_cxns_cap();
 void print_connections();
-void print_rtt(FILE *trace_fileptr);
+void add_RTT(Packet pkt);
+void print_RTTs();
 uint16_t convert_2bytes_int(unsigned char *bytes, int index);
 uint32_t convert_4bytes_int(unsigned char *bytes, int index);
 
-/* array of connections and its utilities */
+/* connections and their utilities */
 short int curr_cxns_size = INITIAL_LENGTH;
 Connection *cxns;
 short int num_unique_cxns = 0;
+
+/* RTTs and their utilities */
+short int curr_RTTs_size = INITIAL_LENGTH;
+RTT *RTTs;
+short int num_unique_RTTs = 0;
 
 int main(int argc, char **argv) {
     /* reusable counting variable */
@@ -219,6 +254,12 @@ int main(int argc, char **argv) {
     cxns = malloc(sizeof(*cxns) * INITIAL_LENGTH);
     if (!cxns) {
         fprintf(stderr, "Could not allocate memory for connection summaries");
+        exit(EXIT_FAILURE);
+    }
+    /* initialize RTTs */
+    RTTs = malloc(sizeof(*RTTs) * INITIAL_LENGTH);
+    if (!RTTs) {
+        fprintf(stderr, "Could not allocate memory for round trip times");
         exit(EXIT_FAILURE);
     }
 
@@ -402,6 +443,9 @@ void stream_bytes(FILE *trace_fileptr) {
                 else if (options.s) {
                     add_connection(pkt);
                 }
+                else if (options.t && TCP_PROTOCOL == pkt.IP.protocol) {
+                    add_RTT(pkt);
+                }
             }
             pkt = emptyPacket;
             i = 0;
@@ -412,6 +456,10 @@ void stream_bytes(FILE *trace_fileptr) {
     if (options.s) {
         print_connections();
         free(cxns);
+    }
+    else if (options.t) {
+        print_RTTs();
+        free(RTTs);
     }
 }
 
@@ -544,21 +592,6 @@ uint32_t get_connection_id(Packet pkt) {
            ((UDP_PROTOCOL == pkt.IP.protocol) ? 1 : 0);
 }
 
-/**
- * When the array of connections reaches its capacity,
- * use this method to copy the connections into a new array
- * with twice the capacity of the original
- */
-void double_cxns_cap() {
-    int i = 0;
-    Connection cxns_new[curr_cxns_size * 2];
-    for (i = 0; i < curr_cxns_size; i++) {
-        cxns_new[i] = cxns[i];
-    }
-    cxns = cxns_new;
-    curr_cxns_size *= 2;
-}
-
 void print_connections() {
     int i;
     int j;
@@ -607,8 +640,125 @@ void print_connections() {
     }
 }
 
-void print_rtt(FILE *trace_fileptr) {
-    ;
+void add_RTT(Packet pkt) {
+    int i = 0;
+    uint32_t id = get_connection_id(pkt);
+    uint8_t id_is_new = 1;
+    uint8_t RTT_index;
+    static const RTT emptyRTT;
+
+    for (i = 0; i < num_unique_RTTs; i++) {
+        // This ID already exists
+        if (RTTs[i].id == id) {
+            id_is_new = 0;
+            // Resp RTT End
+            if ((0 < RTTs[i].r_rtt_start_s || 0 < RTTs[i].r_rtt_start_us) &&
+                (0 == RTTs[i].r_rtt_end_s && 0 == RTTs[i].r_rtt_end_us) &&
+                (convert_4bytes_int(pkt.IP.src_IP, BYTES_IN_IPV4 - 1) ==
+                 convert_4bytes_int(RTTs[i].orig_IP, BYTES_IN_IPV4 - 1)) &&
+                RTTs[i].r_rtt_seqn < pkt.trans.ack_number) {
+                RTTs[i].r_rtt_end_s = pkt.meta.timestamp_s;
+                RTTs[i].r_rtt_end_us = pkt.meta.timestamp_us;
+            }
+            // Orig RTT End
+            else if ((0 < RTTs[i].o_rtt_start_s || 0 < RTTs[i].o_rtt_start_us) &&
+                (0 == RTTs[i].o_rtt_end_s && 0 == RTTs[i].o_rtt_end_us) &&
+                (convert_4bytes_int(pkt.IP.src_IP, BYTES_IN_IPV4 - 1) ==
+                 convert_4bytes_int(RTTs[i].resp_IP, BYTES_IN_IPV4 - 1)) &&
+                RTTs[i].o_rtt_seqn < pkt.trans.ack_number) {
+                RTTs[i].o_rtt_end_s = pkt.meta.timestamp_s;
+                RTTs[i].o_rtt_end_us = pkt.meta.timestamp_us;
+            }
+            break;
+        }
+    }
+    RTT_index = (id_is_new) ? num_unique_RTTs : i;
+    // This is a new connection
+    if (id_is_new) {
+        // If the array is full, copy it into a larger array
+        if (curr_RTTs_size <= num_unique_RTTs) {
+            size_t newsize = sizeof(*RTTs) * (curr_RTTs_size * 2);
+            RTT *RTTs_new = realloc(RTTs, newsize);
+            if (!RTTs_new) {
+                fprintf(stderr, "Could not expand memory for additional round trip times");
+                exit(EXIT_FAILURE);
+            }
+            else {
+                RTTs = RTTs_new;
+                curr_RTTs_size *= 2;
+            }
+        }
+        // Zero out the entry
+        RTTs[num_unique_RTTs] = emptyRTT;
+        // Set ID, IPs, ports
+        RTTs[num_unique_RTTs].id = id;
+        for (i = 0; i < BYTES_IN_IPV4; i++) {
+            RTTs[num_unique_RTTs].orig_IP[i] = pkt.IP.src_IP[i];
+        }
+        RTTs[num_unique_RTTs].orig_port = pkt.trans.src_port;
+        for (i = 0; i < BYTES_IN_IPV4; i++) {
+            RTTs[num_unique_RTTs].resp_IP[i] = pkt.IP.dst_IP[i];
+        }
+        RTTs[num_unique_RTTs].resp_port = pkt.trans.dst_port;
+        num_unique_RTTs++;
+    }
+    // Orig RTT Start
+    if (0 == RTTs[RTT_index].o_rtt_start_s && 0 == RTTs[RTT_index].o_rtt_start_us &&
+        (convert_4bytes_int(pkt.IP.src_IP, BYTES_IN_IPV4 - 1) ==
+        convert_4bytes_int(RTTs[i].orig_IP, BYTES_IN_IPV4 - 1)) &&
+        0 < pkt.IP.totlen - (pkt.IP.optlen + IP_HEADER_LEN + pkt.trans.data_offset)) {
+        RTTs[RTT_index].o_rtt_start_s = pkt.meta.timestamp_s;
+        RTTs[RTT_index].o_rtt_start_us = pkt.meta.timestamp_us;
+        RTTs[RTT_index].o_rtt_seqn = pkt.trans.seq_number;
+    }
+    // Resp RTT Start
+    else if (0 == RTTs[RTT_index].r_rtt_start_s && 0 == RTTs[RTT_index].r_rtt_start_us &&
+        (convert_4bytes_int(pkt.IP.src_IP, BYTES_IN_IPV4 - 1) ==
+        convert_4bytes_int(RTTs[i].resp_IP, BYTES_IN_IPV4 - 1)) &&
+        0 < pkt.IP.totlen - (pkt.IP.optlen + IP_HEADER_LEN + pkt.trans.data_offset)) {
+        RTTs[RTT_index].r_rtt_start_s = pkt.meta.timestamp_s;
+        RTTs[RTT_index].r_rtt_start_us = pkt.meta.timestamp_us;
+        RTTs[RTT_index].r_rtt_seqn = pkt.trans.seq_number;
+    }
+}
+
+void print_RTTs() {
+    int i;
+    int j;
+    uint32_t o_to_r_rtt_s;
+    uint32_t o_to_r_rtt_us;
+    uint32_t r_to_o_rtt_s;
+    uint32_t r_to_o_rtt_us;
+    for (i = 0; i < num_unique_RTTs; i++) {
+        printf("%u", RTTs[i].orig_IP[0]);
+        for (j = 1; j < BYTES_IN_IPV4; j++) {
+            printf(".%u", RTTs[i].orig_IP[j]);
+        }
+        printf(" %u ", RTTs[i].orig_port);
+        printf("%u", RTTs[i].resp_IP[0]);
+        for (j = 1; j < BYTES_IN_IPV4; j++) {
+            printf(".%u", RTTs[i].resp_IP[j]);
+        }
+        printf(" %u ", RTTs[i].resp_port);
+        o_to_r_rtt_s = RTTs[i].o_rtt_end_s - RTTs[i].o_rtt_start_s;
+        if (RTTs[i].o_rtt_start_us > RTTs[i].o_rtt_end_us) {
+            o_to_r_rtt_us = US_DIGIT_MAX - (RTTs[i].o_rtt_start_us - RTTs[i].o_rtt_end_us);
+            o_to_r_rtt_s--;
+        } else {
+            o_to_r_rtt_us = RTTs[i].o_rtt_end_us - RTTs[i].o_rtt_start_us;
+        }
+        printf("%lu.%06lu ", (unsigned long)o_to_r_rtt_s,
+                             (unsigned long)o_to_r_rtt_us);
+        r_to_o_rtt_s = RTTs[i].r_rtt_end_s - RTTs[i].r_rtt_start_s;
+        if (RTTs[i].r_rtt_start_us > RTTs[i].r_rtt_end_us) {
+            r_to_o_rtt_us = US_DIGIT_MAX - (RTTs[i].r_rtt_start_us - RTTs[i].r_rtt_end_us);
+            r_to_o_rtt_s--;
+        } else {
+            r_to_o_rtt_us = RTTs[i].r_rtt_end_us - RTTs[i].r_rtt_start_us;
+        }
+        printf("%lu.%06lu\n", (unsigned long)r_to_o_rtt_s,
+                             (unsigned long)r_to_o_rtt_us);
+    }
 }
 
 /**
