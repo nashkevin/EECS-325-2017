@@ -2,7 +2,7 @@
 // Kevin Nash (kjn33)
 // PacketTrace.c
 // 2017-04-06
-// [description goes here]
+// Can dump packet traces, summarize connections, and print RTTs
 //
 
 #include <ctype.h>
@@ -740,24 +740,41 @@ void print_RTTs() {
             printf(".%u", RTTs[i].resp_IP[j]);
         }
         printf(" %u ", RTTs[i].resp_port);
-        o_to_r_rtt_s = RTTs[i].o_rtt_end_s - RTTs[i].o_rtt_start_s;
-        if (RTTs[i].o_rtt_start_us > RTTs[i].o_rtt_end_us) {
-            o_to_r_rtt_us = US_DIGIT_MAX - (RTTs[i].o_rtt_start_us - RTTs[i].o_rtt_end_us);
-            o_to_r_rtt_s--;
-        } else {
-            o_to_r_rtt_us = RTTs[i].o_rtt_end_us - RTTs[i].o_rtt_start_us;
+        
+        if (0 == RTTs[i].o_rtt_start_s && 0 == RTTs[i].o_rtt_start_us) {
+            printf("- ");
         }
-        printf("%lu.%06lu ", (unsigned long)o_to_r_rtt_s,
-                             (unsigned long)o_to_r_rtt_us);
-        r_to_o_rtt_s = RTTs[i].r_rtt_end_s - RTTs[i].r_rtt_start_s;
-        if (RTTs[i].r_rtt_start_us > RTTs[i].r_rtt_end_us) {
-            r_to_o_rtt_us = US_DIGIT_MAX - (RTTs[i].r_rtt_start_us - RTTs[i].r_rtt_end_us);
-            r_to_o_rtt_s--;
-        } else {
-            r_to_o_rtt_us = RTTs[i].r_rtt_end_us - RTTs[i].r_rtt_start_us;
+        else if (0 == RTTs[i].o_rtt_end_s && 0 == RTTs[i].o_rtt_end_us) {
+            printf("? ");
         }
-        printf("%lu.%06lu\n", (unsigned long)r_to_o_rtt_s,
-                             (unsigned long)r_to_o_rtt_us);
+        else {
+            o_to_r_rtt_s = RTTs[i].o_rtt_end_s - RTTs[i].o_rtt_start_s;
+            if (RTTs[i].o_rtt_start_us > RTTs[i].o_rtt_end_us) {
+                o_to_r_rtt_us = US_DIGIT_MAX - (RTTs[i].o_rtt_start_us - RTTs[i].o_rtt_end_us);
+                o_to_r_rtt_s--;
+            } else {
+                o_to_r_rtt_us = RTTs[i].o_rtt_end_us - RTTs[i].o_rtt_start_us;
+            }
+            printf("%lu.%06lu ", (unsigned long)o_to_r_rtt_s,
+                                 (unsigned long)o_to_r_rtt_us);
+        }
+        if (0 == RTTs[i].r_rtt_start_s && 0 == RTTs[i].r_rtt_start_us) {
+            printf("-\n");
+        }
+        else if (0 == RTTs[i].r_rtt_end_s && 0 == RTTs[i].r_rtt_end_us) {
+            printf("?\n");
+        }
+        else {
+            r_to_o_rtt_s = RTTs[i].r_rtt_end_s - RTTs[i].r_rtt_start_s;
+            if (RTTs[i].r_rtt_start_us > RTTs[i].r_rtt_end_us) {
+                r_to_o_rtt_us = US_DIGIT_MAX - (RTTs[i].r_rtt_start_us - RTTs[i].r_rtt_end_us);
+                r_to_o_rtt_s--;
+            } else {
+                r_to_o_rtt_us = RTTs[i].r_rtt_end_us - RTTs[i].r_rtt_start_us;
+            }
+            printf("%lu.%06lu\n", (unsigned long)r_to_o_rtt_s,
+                                  (unsigned long)r_to_o_rtt_us);
+        }
     }
 }
 

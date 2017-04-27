@@ -1,0 +1,11 @@
+Kevin Nash (kjn33)
+EECS 325, Project 3
+
+There is one known issue with my part 3. Sometimes the o_to_r_rtt is off
+by just a little bit. It usually isn't, and as far as I can tell, r_to_o_rtt
+is always correct. I don't have time to investigate further, which sucks
+because it's probably something small.
+
+I have the default Makefile rule "make" set to compile everything.
+
+Enjoy.
